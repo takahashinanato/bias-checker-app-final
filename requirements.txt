@@ -2,3 +2,4 @@ streamlit
 openai
 matplotlib
 pandas
+python-dotenv
