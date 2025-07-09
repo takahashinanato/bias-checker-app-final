@@ -99,7 +99,6 @@ if st.button("診断する") and user_input:
 
         except Exception as e:
             st.error("診断に失敗しました。形式エラーの可能性があります。")
-            st.code(raw)
 
 # 履歴の表示とCSV保存
 if st.session_state.diagnosis_history:
