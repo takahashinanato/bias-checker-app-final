@@ -1,109 +1,138 @@
 import streamlit as st
-import openai
 import pandas as pd
 import plotly.express as px
+import openai
 import os
-import json
 from dotenv import load_dotenv
 
-# APIキーの読み込み
+# .envファイルからAPIキーを読み込み
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# 初期設定
 st.set_page_config(page_title="政治的バイアス診断アプリ", layout="centered")
+
 st.title("🧠 政治的バイアス診断アプリ")
 
-# ジャンル一覧
-genres = ["政治", "経済", "ジェンダー", "教育", "環境", "国際", "医療", "エンタメ"]
+# ジャンル選択
+genre = st.selectbox("診断するテーマを選んでください", ["政治", "経済", "教育", "ジェンダー", "環境", "外交"])
 
-# 入力欄
-genre = st.selectbox("診断するテーマを選んでください", genres)
-user_input = st.text_area("SNS投稿や自身の意見などを入力（500文字以内）", max_chars=500, height=150)
+# 入力欄（最大500字）
+content = st.text_area("SNS投稿や自身の意見などを入力（500字以内）", max_chars=500)
 
-# 履歴の初期化
 if "diagnosis_history" not in st.session_state:
     st.session_state.diagnosis_history = []
 
-# 診断実行
-if st.button("診断する") and user_input:
-    with st.spinner("ChatGPTによる診断中..."):
-        try:
-            prompt = f"""
-以下の投稿について、次の5項目をJSON形式で出力してください：
-1. "bias_score": -1.0〜+1.0（保守〜リベラル）
-2. "strength_score": 0.0〜1.0（表現の強さ）
-3. "comment": 中立的で簡潔な解説（200字以内）
-4. "similar_opinion": 内容に似た意見（1文）
-5. "opposite_opinion": 反対の立場の意見（1文）
+# 残り回数の表示
+remaining = 5 - len(st.session_state.diagnosis_history)
+st.caption(f"🧪 診断可能回数の残り：{remaining} 回（最大5回まで）")
 
-投稿ジャンル: {genre}
-投稿内容: {user_input}
-"""
+# 診断ボタン
+if st.button("診断する") and content.strip():
+    if remaining <= 0:
+        st.warning("診断回数の上限に達しました。")
+    else:
+        with st.spinner("診断中..."):
+            try:
+                system_prompt = (
+                    "以下の投稿文について、政治的傾向と主張の強さを以下の形式でJSONで出力してください：\n\n"
+                    "```json\n"
+                    "{\n"
+                    "  \"bias_score\": 数値（-1.0〜1.0）,\n"
+                    "  \"strength_score\": 数値（0.0〜1.0）,\n"
+                    "  \"comment\": \"コメント（200字以内、日本語）\"\n"
+                    "}\n"
+                    "```\n\n"
+                    "bias_scoreは保守派=-1.0、リベラル派=+1.0を基準に評価。\n"
+                    "strength_scoreは言葉の強さや過激さに基づいて0.0〜1.0で評価してください。"
+                )
 
-            response = openai.ChatCompletion.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}]
-            )
-            raw = response.choices[0].message.content.strip()
-            raw = raw.replace("```json", "").replace("```", "").strip()
-            result = json.loads(raw)
+                response = openai.ChatCompletion.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": content}
+                    ],
+                    temperature=0.7
+                )
 
-            bias = result["bias_score"]
-            strength = result["strength_score"]
-            comment = result["comment"]
-            similar = result["similar_opinion"]
-            opposite = result["opposite_opinion"]
+                raw = response.choices[0].message.content.strip()
+                json_str = raw.split("```json")[-1].split("```")[0].strip()
+                result = eval(json_str)
 
-            # 表示
-            st.markdown(f"### 📊 診断結果")
-            st.markdown(f"**傾向スコア:** {bias}  **主張の強さ:** {strength}")
-            st.markdown(f"**コメント:** {comment}")
+                bias_score = float(result["bias_score"])
+                strength_score = float(result["strength_score"])
+                comment = result["comment"]
 
-            st.markdown("---")
-            st.markdown("### 🟦 似た意見（ChatGPTによる自動生成）")
-            st.info(similar)
-            st.markdown("### 🟥 反対意見（ChatGPTによる自動生成）")
-            st.error(opposite)
+                # 表示
+                st.markdown(f"**傾向スコア**: {bias_score:.1f}　**強さスコア**: {strength_score:.1f}")
+                st.markdown(f"**コメント**: {comment}")
 
-            # 履歴に追加
-            st.session_state.diagnosis_history.append({
-                "content": user_input,
-                "genre": genre,
-                "bias_score": bias,
-                "strength_score": strength,
-                "comment": comment,
-                "similar": similar,
-                "opposite": opposite,
-                "type": "ユーザー投稿"
-            })
+                # データ保存
+                st.session_state.diagnosis_history.append({
+                    "content": content,
+                    "genre": genre,
+                    "bias_score": bias_score,
+                    "strength_score": strength_score,
+                    "comment": comment
+                })
 
-            # プロット用データ
-            df = pd.DataFrame(st.session_state.diagnosis_history)
-            fig = px.scatter(
-                df,
-                x="bias_score",
-                y="strength_score",
-                color="type",
-                hover_data=["content"],
-                range_x=[-1, 1],
-                range_y=[0, 1],
-                labels={
-                    "bias_score": "Political Bias Score (-1 = Conservative, +1 = Liberal)",
-                    "strength_score": "Strength Score (0 = Mild, 1 = Strong)"
-                },
-                color_discrete_map={"ユーザー投稿": "blue"}
-            )
-            fig.update_traces(marker=dict(size=12))
-            st.plotly_chart(fig, use_container_width=True)
+                # 類似・反対の例を生成
+                example_prompt = (
+                    f"以下の投稿文に対して、政治的立場と主張の強さが似た意見・反対の意見をそれぞれ1つずつ挙げてください。\n\n"
+                    f"投稿文：{content}\n\n"
+                    f"出力形式：\n"
+                    f"```json\n"
+                    f"{{\n"
+                    f"  \"similar_opinion\": \"〜〜〜\",\n"
+                    f"  \"opposite_opinion\": \"〜〜〜\"\n"
+                    f"}}\n"
+                    f"```"
+                )
 
-        except Exception as e:
-            st.error("診断に失敗しました。形式エラーの可能性があります。")
+                ex_response = openai.ChatCompletion.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": example_prompt}
+                    ],
+                    temperature=0.7
+                )
+                ex_raw = ex_response.choices[0].message.content.strip()
+                ex_json = ex_raw.split("```json")[-1].split("```")[0].strip()
+                ex_result = eval(ex_json)
 
-# 履歴の表示とCSV保存
+                st.markdown("### 🟦 似た意見の例")
+                st.markdown(f"**内容**: {ex_result['similar_opinion']}")
+
+                st.markdown("### 🟥 反対意見の例")
+                st.markdown(f"**内容**: {ex_result['opposite_opinion']}")
+
+            except Exception as e:
+                st.error("診断に失敗しました。形式エラーの可能性があります。")
+                st.code(str(e))
+
+# グラフの表示
 if st.session_state.diagnosis_history:
     df = pd.DataFrame(st.session_state.diagnosis_history)
-    st.markdown("### 🗂️ 診断履歴")
+
+    st.markdown("### 診断履歴グラフ")
+    fig = px.scatter(
+        df,
+        x="bias_score",
+        y="strength_score",
+        text="genre",
+        labels={
+            "bias_score": "Political Bias Score (-1.0 = Conservative, +1.0 = Liberal)",
+            "strength_score": "Strength Score (0.0 = Mild, 1.0 = Strong)"
+        },
+        color_discrete_sequence=["blue"]
+    )
+    fig.update_traces(marker=dict(size=10))
+    fig.update_layout(height=500)
+    st.plotly_chart(fig)
+
+    # 表形式とCSVダウンロード
+    st.markdown("### 診断履歴")
     st.dataframe(df)
-    csv = df.to_csv(index=False, encoding="utf-8-sig")
+
+    csv = df.to_csv(index=False).encode("utf-8")
     st.download_button("診断履歴をCSVでダウンロード", csv, file_name="diagnosis_history.csv", mime="text/csv")
