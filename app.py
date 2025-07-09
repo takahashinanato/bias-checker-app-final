@@ -1,120 +1,110 @@
 import streamlit as st
 import openai
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.font_manager as fm
+import plotly.express as px
 import os
+import json
 from dotenv import load_dotenv
 
-# フォント設定（日本語化対応）
-font_path = "./fonts/NotoSansCJKjp-Regular.otf"
-if os.path.exists(font_path):
-    fm.fontManager.addfont(font_path)
-    plt.rcParams['font.family'] = 'Noto Sans CJK JP'
-
-# 環境変数からAPIキー読み込み
+# APIキーの読み込み
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# ジャンル一覧
-GENRES = ["政治", "経済", "ジェンダー", "教育", "環境", "国際", "医療", "エンタメ"]
+# 初期設定
+st.set_page_config(page_title="Political Bias Checker", layout="centered")
+st.title("🧠 Political Bias Diagnosis App")
 
-# 初期化
+# ジャンル一覧
+genres = ["Politics", "Economy", "Gender", "Education", "Environment", "International", "Healthcare", "Entertainment"]
+
+# 入力欄
+genre = st.selectbox("Choose a topic for diagnosis", genres)
+user_input = st.text_area("Enter your opinion (up to 500 characters)", max_chars=500, height=150)
+
+# 履歴の初期化
 if "diagnosis_history" not in st.session_state:
     st.session_state.diagnosis_history = []
 
-st.title("🧠 政治的バイアス診断アプリ")
-
-# UI
-genre = st.selectbox("診断するテーマを選んでください", GENRES)
-content = st.text_area("SNS投稿や自身の意見などを入力（200字以内）", max_chars=200)
-
-if st.button("診断する") and content:
-    with st.spinner("診断中..."):
+# 診断実行
+if st.button("Run Diagnosis") and user_input:
+    with st.spinner("Analyzing with GPT..."):
         try:
-            # ChatGPTで診断
-            system_prompt = f"""
-            あなたはSNS投稿の政治的バイアスや主張の強さを分析するAIです。
-            以下の形式で出力してください：
-            {{
-              "bias_score": 数値（-1.0〜+1.0で保守〜リベラル）, 
-              "strength_score": 数値（0.0〜1.0で穏健〜過激）, 
-              "comment": "診断の根拠を簡潔に説明したコメント"
-            }}
-            """
+            prompt = f"""
+You are a political bias diagnosis assistant.
+Given the following post, return a JSON with the following keys:
+- bias_score: from -1.0 (Conservative) to +1.0 (Liberal)
+- strength_score: from 0.0 (Mild) to 1.0 (Strong)
+- comment: short and neutral explanation in Japanese
+- similar_opinion: a similar opinion in one sentence
+- opposite_opinion: an opposite opinion in one sentence
+
+Post: {user_input}
+"""
+
             response = openai.ChatCompletion.create(
                 model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"投稿ジャンル: {genre}\n投稿内容: {content}"}
-                ]
+                messages=[{"role": "user", "content": prompt}]
             )
             raw = response.choices[0].message.content.strip()
-            result = eval(raw) if raw.startswith("{") else {}
+            raw = raw.replace("```json", "").replace("```", "").strip()
+            result = json.loads(raw)
 
-            # スコア抽出
-            bias = float(result["bias_score"])
-            strength = float(result["strength_score"])
+            bias = result["bias_score"]
+            strength = result["strength_score"]
             comment = result["comment"]
+            similar = result["similar_opinion"]
+            opposite = result["opposite_opinion"]
 
             # 表示
-            st.markdown(f"**傾向スコア**: {bias}　**強さスコア**: {strength}")
-            st.markdown(f"**コメント:** {comment}")
+            st.markdown(f"### 📊 Diagnosis Result")
+            st.markdown(f"**Bias Score:** {bias}  **Strength Score:** {strength}")
+            st.markdown(f"**Comment:** {comment}")
 
-            # グラフ描画
-            fig, ax = plt.subplots()
-            ax.set_title("バイアス診断マップ")
-            ax.set_xlabel("Political Bias Score (-1.0 = 保守, +1.0 = リベラル)")
-            ax.set_ylabel("Strength Score (0.0 = 穏健, 1.0 = 過激)")
-            ax.grid(True)
-            ax.set_xlim(-1, 1)
-            ax.set_ylim(0, 1)
-
-            # 履歴プロット
-            for h in st.session_state.diagnosis_history:
-                ax.plot(h["bias_score"], h["strength_score"], 'o', color='gray', alpha=0.5)
-
-            # 現在の点
-            ax.plot(bias, strength, 'o', color='blue')
-            st.pyplot(fig)
-
-            # ChatGPTで似た意見と反対意見も生成
-            def generate_opinion(kind):
-                opinion_prompt = f"""
-                以下の投稿に対して、{kind}な意見を短く1文で出力してください。
-                投稿: {content}
-                """
-                r = openai.ChatCompletion.create(
-                    model="gpt-4o",
-                    messages=[{"role": "user", "content": opinion_prompt}]
-                )
-                return r.choices[0].message.content.strip()
-
-            similar = generate_opinion("似た")
-            opposite = generate_opinion("反対")
-
-            st.markdown("### 🟦 似た意見の例")
-            st.markdown(f"**{similar}**")
-            st.markdown("### 🟥 反対意見の例")
-            st.markdown(f"**{opposite}**")
+            st.markdown("---")
+            st.markdown("### 🟦 Similar Opinion")
+            st.info(similar)
+            st.markdown("### 🟥 Opposite Opinion")
+            st.error(opposite)
 
             # 履歴に追加
             st.session_state.diagnosis_history.append({
-                "content": content,
+                "content": user_input,
                 "genre": genre,
                 "bias_score": bias,
                 "strength_score": strength,
-                "comment": comment
+                "comment": comment,
+                "similar": similar,
+                "opposite": opposite,
+                "type": "User"
             })
 
+            # プロット用データ
+            df = pd.DataFrame(st.session_state.diagnosis_history)
+            fig = px.scatter(
+                df,
+                x="bias_score",
+                y="strength_score",
+                color="type",
+                hover_data=["content"],
+                range_x=[-1, 1],
+                range_y=[0, 1],
+                labels={
+                    "bias_score": "Political Bias Score (-1 = Conservative, +1 = Liberal)",
+                    "strength_score": "Strength Score (0 = Mild, 1 = Strong)"
+                },
+                color_discrete_map={"User": "blue"}
+            )
+            fig.update_traces(marker=dict(size=12))
+            st.plotly_chart(fig, use_container_width=True)
+
         except Exception as e:
-            st.error(f"診断結果の解析に失敗しました: {e}")
+            st.error("Failed to parse the response.")
             st.code(raw)
 
-# 履歴表示とCSV保存
+# 履歴の表示とCSV保存
 if st.session_state.diagnosis_history:
     df = pd.DataFrame(st.session_state.diagnosis_history)
-    st.markdown("### 🗂️ 診断履歴")
+    st.markdown("### 🗂️ Diagnosis History")
     st.dataframe(df)
     csv = df.to_csv(index=False, encoding="utf-8-sig")
-    st.download_button("診断履歴をCSVでダウンロード", csv, "diagnosis_history.csv", "text/csv")
+    st.download_button("Download CSV", csv, file_name="diagnosis_history.csv", mime="text/csv")
