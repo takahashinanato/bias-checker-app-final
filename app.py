@@ -11,34 +11,34 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 # 初期設定
-st.set_page_config(page_title="Political Bias Checker", layout="centered")
-st.title("🧠 Political Bias Diagnosis App")
+st.set_page_config(page_title="政治的バイアス診断アプリ", layout="centered")
+st.title("🧠 政治的バイアス診断アプリ")
 
 # ジャンル一覧
-genres = ["Politics", "Economy", "Gender", "Education", "Environment", "International", "Healthcare", "Entertainment"]
+genres = ["政治", "経済", "ジェンダー", "教育", "環境", "国際", "医療", "エンタメ"]
 
 # 入力欄
-genre = st.selectbox("Choose a topic for diagnosis", genres)
-user_input = st.text_area("Enter your opinion (up to 500 characters)", max_chars=500, height=150)
+genre = st.selectbox("診断するテーマを選んでください", genres)
+user_input = st.text_area("SNS投稿や自身の意見などを入力（500文字以内）", max_chars=500, height=150)
 
 # 履歴の初期化
 if "diagnosis_history" not in st.session_state:
     st.session_state.diagnosis_history = []
 
 # 診断実行
-if st.button("Run Diagnosis") and user_input:
-    with st.spinner("Analyzing with GPT..."):
+if st.button("診断する") and user_input:
+    with st.spinner("ChatGPTによる診断中..."):
         try:
             prompt = f"""
-You are a political bias diagnosis assistant.
-Given the following post, return a JSON with the following keys:
-- bias_score: from -1.0 (Conservative) to +1.0 (Liberal)
-- strength_score: from 0.0 (Mild) to 1.0 (Strong)
-- comment: short and neutral explanation in Japanese
-- similar_opinion: a similar opinion in one sentence
-- opposite_opinion: an opposite opinion in one sentence
+以下の投稿について、次の5項目をJSON形式で出力してください：
+1. "bias_score": -1.0〜+1.0（保守〜リベラル）
+2. "strength_score": 0.0〜1.0（表現の強さ）
+3. "comment": 中立的で簡潔な解説（200字以内）
+4. "similar_opinion": 内容に似た意見（1文）
+5. "opposite_opinion": 反対の立場の意見（1文）
 
-Post: {user_input}
+投稿ジャンル: {genre}
+投稿内容: {user_input}
 """
 
             response = openai.ChatCompletion.create(
@@ -56,14 +56,14 @@ Post: {user_input}
             opposite = result["opposite_opinion"]
 
             # 表示
-            st.markdown(f"### 📊 Diagnosis Result")
-            st.markdown(f"**Bias Score:** {bias}  **Strength Score:** {strength}")
-            st.markdown(f"**Comment:** {comment}")
+            st.markdown(f"### 📊 診断結果")
+            st.markdown(f"**傾向スコア:** {bias}  **主張の強さ:** {strength}")
+            st.markdown(f"**コメント:** {comment}")
 
             st.markdown("---")
-            st.markdown("### 🟦 Similar Opinion")
+            st.markdown("### 🟦 似た意見（ChatGPTによる自動生成）")
             st.info(similar)
-            st.markdown("### 🟥 Opposite Opinion")
+            st.markdown("### 🟥 反対意見（ChatGPTによる自動生成）")
             st.error(opposite)
 
             # 履歴に追加
@@ -75,7 +75,7 @@ Post: {user_input}
                 "comment": comment,
                 "similar": similar,
                 "opposite": opposite,
-                "type": "User"
+                "type": "ユーザー投稿"
             })
 
             # プロット用データ
@@ -92,19 +92,19 @@ Post: {user_input}
                     "bias_score": "Political Bias Score (-1 = Conservative, +1 = Liberal)",
                     "strength_score": "Strength Score (0 = Mild, 1 = Strong)"
                 },
-                color_discrete_map={"User": "blue"}
+                color_discrete_map={"ユーザー投稿": "blue"}
             )
             fig.update_traces(marker=dict(size=12))
             st.plotly_chart(fig, use_container_width=True)
 
         except Exception as e:
-            st.error("Failed to parse the response.")
+            st.error("診断に失敗しました。形式エラーの可能性があります。")
             st.code(raw)
 
 # 履歴の表示とCSV保存
 if st.session_state.diagnosis_history:
     df = pd.DataFrame(st.session_state.diagnosis_history)
-    st.markdown("### 🗂️ Diagnosis History")
+    st.markdown("### 🗂️ 診断履歴")
     st.dataframe(df)
     csv = df.to_csv(index=False, encoding="utf-8-sig")
-    st.download_button("Download CSV", csv, file_name="diagnosis_history.csv", mime="text/csv")
+    st.download_button("診断履歴をCSVでダウンロード", csv, file_name="diagnosis_history.csv", mime="text/csv")
