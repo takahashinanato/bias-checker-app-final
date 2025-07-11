@@ -10,16 +10,23 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 st.title("🧠 政治的バイアス診断アプリ")
 
 genre = st.selectbox("ジャンルを選択してください", ["政治", "経済", "ジェンダー", "教育", "その他"])
+
+# 入力欄（キーを使ってセッションで管理）
 user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", key="user_input", max_chars=500)
 
+# 🔘 診断ボタン & 入力クリアボタンを横並びに
 col1, col2 = st.columns([1, 1])
 with col1:
-    run = st.button("診断する")
+    run_diagnosis = st.button("診断する")
 with col2:
     if st.button("🧹 入力をクリア"):
-        st.session_state.user_input = ""
+        st.session_state.user_input = ""  # 入力欄をリセット
 
-if st.button("診断する") and user_input:
+# 履歴保持用セッション
+if "history" not in st.session_state:
+    st.session_state.history = []
+
+if run_diagnosis and st.session_state.user_input:
     with st.spinner("診断中..."):
 
         prompt = f"""
@@ -32,7 +39,7 @@ if st.button("診断する") and user_input:
 - opposite_opinion（{{"content": 反対意見文, "bias_score": 数値, "strength_score": 数値}}）
 
 【投稿文】:
-{user_input}
+{st.session_state.user_input}
 """
 
         try:
@@ -57,7 +64,7 @@ if st.button("診断する") and user_input:
 
             data = json.loads(raw)
 
-            # 結果の表示
+            # 結果表示
             st.markdown(f"### 🗨️ コメント:\n{data['comment']}")
 
             st.session_state.history.append({
@@ -95,6 +102,7 @@ if st.button("診断する") and user_input:
             st.error("診断に失敗しました。形式エラーの可能性があります。")
             st.code(raw)
 
+# 診断履歴のプロット
 if st.session_state.history:
     st.markdown("### 🧮 過去の診断履歴（セッション内）")
     df_all = pd.DataFrame(st.session_state.history)
@@ -114,5 +122,6 @@ if st.session_state.history:
     fig_all.update_traces(textposition="top center")
     st.plotly_chart(fig_all, use_container_width=True)
 
+    # CSVダウンロード
     csv = df_all.to_csv(index=False, encoding="utf-8-sig")
     st.download_button("📥 CSVダウンロード", csv, file_name="bias_results.csv")
