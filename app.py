@@ -19,12 +19,12 @@ if st.button("診断する") and user_input:
     with st.spinner("診断中..."):
 
         prompt = f"""
-あなたはSNS投稿のバイアス分析AIです。以下の投稿文について、以下の形式でJSONのみを出力してください：
+あなたはSNS投稿のバイアス分析AIです。以下の投稿文について、以下の形式で**JSONのみ**を出力してください：
 
 - bias_score（-1.0=保守〜+1.0=リベラル）float型
 - strength_score（0.0〜1.0）float型
 - comment（200字以内の中立的な分析コメント）
-- similar_opinion（{{"content": 似た意見文, "bias_score": 数値, "strength_score": 数値}}）
+- similar_opinion（{{"content": 似た意見文, "bias_score": 数値, "strength_score": 数値}})
 - opposite_opinion（{{"content": 反対意見文, "bias_score": 数値, "strength_score": 数値}}）
 
 【投稿文】:
@@ -42,8 +42,18 @@ if st.button("診断する") and user_input:
             )
 
             raw = response.choices[0].message.content.strip()
+
+            # ✅ コードブロック（```json ... ```）を除去
+            if raw.startswith("```"):
+                raw = raw.strip("`")
+                if "json" in raw:
+                    raw = raw.replace("json", "", 1).strip()
+                if "```" in raw:
+                    raw = raw.split("```")[0].strip()
+
             data = json.loads(raw)
 
+            # 結果の表示
             st.markdown(f"### 🗨️ コメント:\n{data['comment']}")
 
             st.session_state.history.append({
