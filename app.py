@@ -5,27 +5,32 @@ import plotly.express as px
 import json
 
 st.set_page_config(page_title="政治的バイアス診断アプリ", layout="centered")
-
-# 🔐 OpenAI APIキー（Streamlit Secrets から）
 openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 st.title("🧠 政治的バイアス診断アプリ")
 
-# 🔸 ジャンル選択
+# ジャンル選択
 genre = st.selectbox("ジャンルを選択してください", ["政治", "経済", "ジェンダー", "教育", "その他"])
 
-# ✅ 入力欄セッション管理（keyは使わずvalueで制御）
+# セッション初期化
 if "input_text" not in st.session_state:
     st.session_state.input_text = ""
+if "latest_prompt" not in st.session_state:
+    st.session_state.latest_prompt = ""
+if "latest_response" not in st.session_state:
+    st.session_state.latest_response = None
+if "history" not in st.session_state:
+    st.session_state.history = []
 
+# 入力欄
 user_input = st.text_area(
     "SNS投稿や意見（500文字以内）を入力",
     value=st.session_state.input_text,
     max_chars=500
 )
-st.session_state.input_text = user_input  # 入力値を保存
+st.session_state.input_text = user_input
 
-# 🔘 ボタン表示（診断・クリア）
+# ボタン表示
 col1, col2 = st.columns([1, 1])
 with col1:
     run_diagnosis = st.button("診断する")
@@ -34,15 +39,9 @@ with col2:
         st.session_state.input_text = ""
         st.rerun()
 
-# 履歴初期化
-if "history" not in st.session_state:
-    st.session_state.history = []
-
-# 🧠 診断処理
-if run_diagnosis and st.session_state.input_text:
-    with st.spinner("診断中..."):
-
-        prompt = f"""
+# プロンプト生成関数
+def build_prompt(text):
+    return f"""
 あなたはSNS投稿のバイアス分析AIです。以下の投稿文について、以下の形式で**JSONのみ**を出力してください：
 
 - bias_score（-1.0=保守〜+1.0=リベラル）float型
@@ -52,75 +51,93 @@ if run_diagnosis and st.session_state.input_text:
 - opposite_opinion（{{"content": 反対意見文, "bias_score": 数値, "strength_score": 数値}}）
 
 【投稿文】:
-{st.session_state.input_text}
+{text}
 """
 
+# ChatGPT呼び出し関数
+def fetch_chatgpt(prompt):
+    response = openai.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "あなたは政治的バイアスを診断する専門AIです。"},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.7
+    )
+    raw = response.choices[0].message.content.strip()
+    if raw.startswith("```"):
+        raw = raw.strip("`")
+        if "json" in raw:
+            raw = raw.replace("json", "", 1).strip()
+        if "```" in raw:
+            raw = raw.split("```")[0].strip()
+    return json.loads(raw)
+
+# 診断処理
+if run_diagnosis and st.session_state.input_text:
+    prompt = build_prompt(st.session_state.input_text)
+    try:
+        data = fetch_chatgpt(prompt)
+        st.session_state.latest_prompt = prompt
+        st.session_state.latest_response = data
+
+        st.markdown(f"### 🗨️ コメント:\n{data['comment']}")
+
+        st.session_state.history.append({
+            "Bias": data["bias_score"],
+            "Strength": data["strength_score"],
+            "ジャンル": genre
+        })
+
+        df_latest = pd.DataFrame([st.session_state.history[-1]])
+        fig_latest = px.scatter(
+            df_latest,
+            x="Bias",
+            y="Strength",
+            text="ジャンル",
+            range_x=[-1, 1],
+            range_y=[0, 1],
+            labels={
+                "Bias": "Political Bias Score (-1 = Conservative, +1 = Liberal)",
+                "Strength": "Strength Score (0 = Mild, 1 = Strong)"
+            }
+        )
+        fig_latest.update_traces(textposition="top center")
+        st.markdown("### 📊 現在の診断結果")
+        st.plotly_chart(fig_latest, use_container_width=True)
+
+    except Exception as e:
+        st.error("診断に失敗しました。形式エラーの可能性があります。")
+        st.code(prompt)
+
+# 意見表示と再生成
+if st.session_state.latest_response:
+    data = st.session_state.latest_response
+    st.markdown("### 🟦 似た意見の例")
+    sim = data["similar_opinion"]
+    st.markdown(f"**内容**: {sim['content']}  \n**スコア**: {sim['bias_score']:.2f}, {sim['strength_score']:.2f}")
+    if st.button("🔁 別の似た意見を表示"):
         try:
-            response = openai.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "あなたは政治的バイアスを診断する専門AIです。"},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7
-            )
+            new_sim = fetch_chatgpt(st.session_state.latest_prompt)["similar_opinion"]
+            st.session_state.latest_response["similar_opinion"] = new_sim
+            st.rerun()
+        except:
+            st.warning("再生成に失敗しました。")
 
-            raw = response.choices[0].message.content.strip()
+    st.markdown("### 🟥 反対意見の例")
+    opp = data["opposite_opinion"]
+    st.markdown(f"**内容**: {opp['content']}  \n**スコア**: {opp['bias_score']:.2f}, {opp['strength_score']:.2f}")
+    if st.button("🔁 別の反対意見を表示"):
+        try:
+            new_opp = fetch_chatgpt(st.session_state.latest_prompt)["opposite_opinion"]
+            st.session_state.latest_response["opposite_opinion"] = new_opp
+            st.rerun()
+        except:
+            st.warning("再生成に失敗しました。")
 
-            # ✅ コードブロック除去処理
-            if raw.startswith("```"):
-                raw = raw.strip("`")
-                if "json" in raw:
-                    raw = raw.replace("json", "", 1).strip()
-                if "```" in raw:
-                    raw = raw.split("```")[0].strip()
-
-            data = json.loads(raw)
-
-            # 🔎 コメント表示
-            st.markdown(f"### 🗨️ コメント:\n{data['comment']}")
-
-            # 🔵 グラフ用に履歴に追加
-            st.session_state.history.append({
-                "Bias": data["bias_score"],
-                "Strength": data["strength_score"],
-                "ジャンル": genre
-            })
-
-            # 🔵 最新プロット
-            st.markdown("### 📊 現在の診断結果")
-            df_latest = pd.DataFrame([st.session_state.history[-1]])
-            fig_latest = px.scatter(
-                df_latest,
-                x="Bias",
-                y="Strength",
-                text="ジャンル",
-                range_x=[-1, 1],
-                range_y=[0, 1],
-                labels={
-                    "Bias": "Political Bias Score (-1 = Conservative, +1 = Liberal)",
-                    "Strength": "Strength Score (0 = Mild, 1 = Strong)"
-                }
-            )
-            fig_latest.update_traces(textposition="top center")
-            st.plotly_chart(fig_latest, use_container_width=True)
-
-            # 💬 似た意見・反対意見
-            st.markdown("### 🟦 似た意見の例")
-            sim = data["similar_opinion"]
-            st.markdown(f"**内容**: {sim['content']}  \n**スコア**: {sim['bias_score']:.2f}, {sim['strength_score']:.2f}")
-
-            st.markdown("### 🟥 反対意見の例")
-            opp = data["opposite_opinion"]
-            st.markdown(f"**内容**: {opp['content']}  \n**スコア**: {opp['bias_score']:.2f}, {opp['strength_score']:.2f}")
-
-        except Exception as e:
-            st.error("診断に失敗しました。形式エラーの可能性があります。")
-            st.code(raw)
-
-# 📈 診断履歴の表示
+# 診断履歴と傾向分析
 if st.session_state.history:
-    st.markdown("### 🧮 過去の診断履歴（セッション内）")
+    st.markdown("### 🧮 診断履歴（セッション内）")
     df_all = pd.DataFrame(st.session_state.history)
     fig_all = px.scatter(
         df_all,
@@ -138,6 +155,14 @@ if st.session_state.history:
     fig_all.update_traces(textposition="top center")
     st.plotly_chart(fig_all, use_container_width=True)
 
-    # 📥 CSVダウンロード
     csv = df_all.to_csv(index=False, encoding="utf-8-sig")
     st.download_button("📥 CSVダウンロード", csv, file_name="bias_results.csv")
+
+    st.markdown("### 📈 あなたの傾向分析")
+    avg_bias = df_all["Bias"].mean()
+    avg_strength = df_all["Strength"].mean()
+    st.markdown(f"- 平均バイアススコア：**{avg_bias:.2f}** → {'保守寄り' if avg_bias < -0.2 else 'リベラル寄り' if avg_bias > 0.2 else '中道'}")
+    st.markdown(f"- 平均強さスコア：**{avg_strength:.2f}** → {'穏健' if avg_strength < 0.4 else 'やや強め' if avg_strength < 0.7 else '過激'}")
+
+    by_genre = df_all.groupby("ジャンル").mean(numeric_only=True)
+    st.dataframe(by_genre.style.format({"Bias": "{:.2f}", "Strength": "{:.2f}"}))
