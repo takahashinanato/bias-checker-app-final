@@ -10,10 +10,14 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 st.title("🧠 政治的バイアス診断アプリ")
 
 genre = st.selectbox("ジャンルを選択してください", ["政治", "経済", "ジェンダー", "教育", "その他"])
-user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", max_chars=500)
+user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", key="user_input", max_chars=500)
 
-if "history" not in st.session_state:
-    st.session_state.history = []
+col1, col2 = st.columns([1, 1])
+with col1:
+    run = st.button("診断する")
+with col2:
+    if st.button("🧹 入力をクリア"):
+        st.session_state.user_input = ""
 
 if st.button("診断する") and user_input:
     with st.spinner("診断中..."):
