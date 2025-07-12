@@ -9,24 +9,27 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 st.title("🧠 政治バイアス検出ツール")
 
-# セッション初期化
-for key in ["latest_prompt", "latest_response", "history", "input_text"]:
-    if key not in st.session_state:
-        st.session_state[key] = ""
+# ✅ セッション初期化（型を正しく）
+if "latest_prompt" not in st.session_state:
+    st.session_state.latest_prompt = None
+if "latest_response" not in st.session_state:
+    st.session_state.latest_response = None
+if "input_text" not in st.session_state:
+    st.session_state.input_text = ""
+if "history" not in st.session_state:
+    st.session_state.history = []
 
-# 🔽 拡張ジャンルリスト
+# 🔽 ジャンル拡張
 genre = st.selectbox("ジャンルを選択してください", [
     "政治・政党", "防衛・外交", "福祉・格差", "経済政策", "教育と道徳",
     "ジェンダーと多様性", "表現・言論の自由", "家族観・伝統文化", "社会秩序・治安", "その他"
 ])
 
-# 入力欄
+# 入力欄（session_stateで管理）
 user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", value=st.session_state.input_text, max_chars=500)
+st.session_state.input_text = user_input  # 更新
 
-# 入力保存
-st.session_state.input_text = user_input
-
-# ボタン
+# ボタン群
 col1, col2 = st.columns([1, 1])
 with col1:
     run_diagnosis = st.button("診断する")
@@ -35,7 +38,7 @@ with col2:
         st.session_state.input_text = ""
         st.session_state.latest_response = None
 
-# プロンプト生成
+# GPTプロンプト生成
 def build_prompt(text):
     return f'''
 あなたはSNS投稿のバイアス分析AIです。以下の投稿文について、以下の形式でJSONのみを出力してください：
@@ -43,8 +46,8 @@ def build_prompt(text):
 - bias_score（-1.0=保守〜+1.0=リベラル）
 - strength_score（0.0〜1.0）
 - comment（投稿者の立場や価値観・思想の傾向を、投稿内容に即して簡潔に200字以内で分析）
-- similar_opinion（{{"content": ..., "bias_score": ..., "strength_score": ...}})
-- opposite_opinion（{{"content": ..., "bias_score": ..., "strength_score": ...}}）
+- similar_opinion（{{"content": "...", "bias_score": 数値, "strength_score": 数値}})
+- opposite_opinion（{{"content": "...", "bias_score": 数値, "strength_score": 数値}}）
 
 【投稿文】:
 {text}
@@ -79,7 +82,7 @@ def fetch_chatgpt(prompt):
     except:
         return None
 
-# 🧠 診断
+# 🔍 診断処理
 if run_diagnosis and user_input:
     with st.spinner("診断中..."):
         result = fetch_chatgpt(build_prompt(user_input))
@@ -94,7 +97,7 @@ if run_diagnosis and user_input:
         else:
             st.error("診断に失敗しました。")
 
-# 📊 表示
+# 🔎 表示ブロック
 if st.session_state.latest_response:
     data = st.session_state.latest_response
 
@@ -137,7 +140,7 @@ if st.session_state.latest_response:
         else:
             st.info("再生成は完了しましたが、もう一度押すと表示に反映される場合があります。")
 
-# 📈 履歴と傾向分析
+# 📈 傾向分析と履歴
 if st.session_state.history:
     st.markdown("### 🧮 診断履歴")
     df_all = pd.DataFrame(st.session_state.history)
