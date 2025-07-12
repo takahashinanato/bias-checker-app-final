@@ -26,14 +26,14 @@ with col2:
         st.session_state.input_text = ""
         st.session_state.latest_response = None
 
-# プロンプト生成
+# GPTプロンプト生成
 def build_prompt(text):
     return f'''
 あなたはSNS投稿のバイアス分析AIです。以下の投稿文について、以下の形式でJSONのみを出力してください：
 
 - bias_score（-1.0=保守〜+1.0=リベラル）
 - strength_score（0.0〜1.0）
-- comment（200字以内）
+- comment（投稿者の立場や価値観・思想の傾向を、投稿内容に即して簡潔に200字以内で分析）
 - similar_opinion（{{"content": ..., "bias_score": ..., "strength_score": ...}})
 - opposite_opinion（{{"content": ..., "bias_score": ..., "strength_score": ...}}）
 
@@ -113,7 +113,6 @@ if st.session_state.latest_response:
         new_sim = fetch_chatgpt(build_regen_prompt("similar", st.session_state.latest_prompt))
         if new_sim and "similar_opinion" in new_sim:
             st.session_state.latest_response["similar_opinion"] = new_sim["similar_opinion"]
-            st.experimental_rerun()
         else:
             st.info("再生成は完了しましたが、もう一度押すと表示に反映される場合があります。")
 
@@ -127,11 +126,10 @@ if st.session_state.latest_response:
         new_opp = fetch_chatgpt(build_regen_prompt("opposite", st.session_state.latest_prompt))
         if new_opp and "opposite_opinion" in new_opp:
             st.session_state.latest_response["opposite_opinion"] = new_opp["opposite_opinion"]
-            st.experimental_rerun()
         else:
             st.info("再生成は完了しましたが、もう一度押すと表示に反映される場合があります。")
 
-# 履歴と傾向分析
+# 診断履歴と傾向分析
 if st.session_state.history:
     st.markdown("### 🧮 診断履歴")
     df_all = pd.DataFrame(st.session_state.history)
