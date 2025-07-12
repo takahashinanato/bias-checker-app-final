@@ -16,14 +16,14 @@ for key in ["latest_prompt", "latest_response", "history"]:
 
 # 入力欄
 genre = st.selectbox("ジャンルを選択してください", ["政治", "経済", "ジェンダー", "教育", "その他"])
-user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", key="input_text", max_chars=500)
+user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", key="user_input", max_chars=500)
 
 col1, col2 = st.columns([1, 1])
 with col1:
     run_diagnosis = st.button("診断する")
 with col2:
     if st.button("🧹 入力をクリア"):
-        st.session_state.input_text = ""
+        st.session_state.user_input = ""
         st.session_state.latest_response = None
 
 # GPTプロンプト生成
