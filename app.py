@@ -10,23 +10,32 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 st.title("🧠 政治バイアス検出ツール")
 
 # セッション初期化
-for key in ["latest_prompt", "latest_response", "history"]:
+for key in ["latest_prompt", "latest_response", "history", "input_text"]:
     if key not in st.session_state:
-        st.session_state[key] = None if key != "history" else []
+        st.session_state[key] = ""
+
+# 🔽 拡張ジャンルリスト
+genre = st.selectbox("ジャンルを選択してください", [
+    "政治・政党", "防衛・外交", "福祉・格差", "経済政策", "教育と道徳",
+    "ジェンダーと多様性", "表現・言論の自由", "家族観・伝統文化", "社会秩序・治安", "その他"
+])
 
 # 入力欄
-genre = st.selectbox("ジャンルを選択してください", ["政治", "経済", "ジェンダー", "教育", "その他"])
-user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", key="user_input", max_chars=500)
+user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", value=st.session_state.input_text, max_chars=500)
 
+# 入力保存
+st.session_state.input_text = user_input
+
+# ボタン
 col1, col2 = st.columns([1, 1])
 with col1:
     run_diagnosis = st.button("診断する")
 with col2:
     if st.button("🧹 入力をクリア"):
-        st.session_state.user_input = ""
+        st.session_state.input_text = ""
         st.session_state.latest_response = None
 
-# GPTプロンプト生成
+# プロンプト生成
 def build_prompt(text):
     return f'''
 あなたはSNS投稿のバイアス分析AIです。以下の投稿文について、以下の形式でJSONのみを出力してください：
@@ -70,21 +79,22 @@ def fetch_chatgpt(prompt):
     except:
         return None
 
-# 診断実行
+# 🧠 診断
 if run_diagnosis and user_input:
-    result = fetch_chatgpt(build_prompt(user_input))
-    if result:
-        st.session_state.latest_prompt = user_input
-        st.session_state.latest_response = result
-        st.session_state.history.append({
-            "Bias": result["bias_score"],
-            "Strength": result["strength_score"],
-            "ジャンル": genre
-        })
-    else:
-        st.error("診断に失敗しました。")
+    with st.spinner("診断中..."):
+        result = fetch_chatgpt(build_prompt(user_input))
+        if result:
+            st.session_state.latest_prompt = user_input
+            st.session_state.latest_response = result
+            st.session_state.history.append({
+                "Bias": result["bias_score"],
+                "Strength": result["strength_score"],
+                "ジャンル": genre
+            })
+        else:
+            st.error("診断に失敗しました。")
 
-# 表示
+# 📊 表示
 if st.session_state.latest_response:
     data = st.session_state.latest_response
 
@@ -103,7 +113,6 @@ if st.session_state.latest_response:
     fig.update_layout(dragmode=False, modebar_remove=["zoom", "pan", "lasso2d", "select2d"])
     st.plotly_chart(fig, use_container_width=True)
 
-    # 似た意見
     st.markdown("### 🟦 似た意見の例")
     sim = data.get("similar_opinion")
     if sim:
@@ -116,7 +125,6 @@ if st.session_state.latest_response:
         else:
             st.info("再生成は完了しましたが、もう一度押すと表示に反映される場合があります。")
 
-    # 反対意見
     st.markdown("### 🟥 反対意見の例")
     opp = data.get("opposite_opinion")
     if opp:
@@ -129,7 +137,7 @@ if st.session_state.latest_response:
         else:
             st.info("再生成は完了しましたが、もう一度押すと表示に反映される場合があります。")
 
-# 診断履歴と傾向分析
+# 📈 履歴と傾向分析
 if st.session_state.history:
     st.markdown("### 🧮 診断履歴")
     df_all = pd.DataFrame(st.session_state.history)
