@@ -9,7 +9,7 @@ openai.api_key = st.secrets["OPENAI_API_KEY"]
 
 st.title("🧠 政治バイアス検出ツール")
 
-# ✅ セッション初期化（型を正しく）
+# ✅ セッション初期化（型付き）
 if "latest_prompt" not in st.session_state:
     st.session_state.latest_prompt = None
 if "latest_response" not in st.session_state:
@@ -19,24 +19,25 @@ if "input_text" not in st.session_state:
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# 🔽 ジャンル拡張
+# 🔽 ジャンル選択
 genre = st.selectbox("ジャンルを選択してください", [
     "政治・政党", "防衛・外交", "福祉・格差", "経済政策", "教育と道徳",
     "ジェンダーと多様性", "表現・言論の自由", "家族観・伝統文化", "社会秩序・治安", "その他"
 ])
 
-# 入力欄（session_stateで管理）
+# 入力欄（セッションで管理）
 user_input = st.text_area("SNS投稿や意見（500文字以内）を入力", value=st.session_state.input_text, max_chars=500)
-st.session_state.input_text = user_input  # 更新
+st.session_state.input_text = user_input  # 保存
 
-# ボタン群
+# ✅ ボタン群
 col1, col2 = st.columns([1, 1])
 with col1:
     run_diagnosis = st.button("診断する")
 with col2:
-    if st.button("🧹 入力をクリア"):
+    if st.button("🧹 入力をクリア", type="primary"):
         st.session_state.input_text = ""
         st.session_state.latest_response = None
+        st.experimental_rerun()  # 明示的に即反映
 
 # GPTプロンプト生成
 def build_prompt(text):
@@ -92,7 +93,8 @@ if run_diagnosis and user_input:
             st.session_state.history.append({
                 "Bias": result["bias_score"],
                 "Strength": result["strength_score"],
-                "ジャンル": genre
+                "ジャンル": genre,
+                "コメント": result["comment"]
             })
         else:
             st.error("診断に失敗しました。")
@@ -140,7 +142,7 @@ if st.session_state.latest_response:
         else:
             st.info("再生成は完了しましたが、もう一度押すと表示に反映される場合があります。")
 
-# 📈 傾向分析と履歴
+# 📈 履歴と傾向分析
 if st.session_state.history:
     st.markdown("### 🧮 診断履歴")
     df_all = pd.DataFrame(st.session_state.history)
@@ -152,11 +154,27 @@ if st.session_state.history:
 
     st.download_button("📥 CSVダウンロード", df_all.to_csv(index=False, encoding="utf-8-sig"), file_name="bias_results.csv")
 
+    st.markdown("### 📊 過去のコメント一覧")
+    for i, row in df_all.iterrows():
+        st.markdown(f"- **{row['ジャンル']}** → {row['コメント']}")
+
     st.markdown("### 📈 あなたの傾向分析")
     avg_bias = df_all["Bias"].mean()
     avg_strength = df_all["Strength"].mean()
 
-    st.markdown(f"- 平均バイアススコア：**{avg_bias:.2f}** → {'保守寄り' if avg_bias < -0.2 else 'リベラル寄り' if avg_bias > 0.2 else '中道'}")
-    st.markdown(f"- 平均強さスコア：**{avg_strength:.2f}** → {'穏健' if avg_strength < 0.4 else 'やや強め' if avg_strength < 0.7 else '過激'}")
+    if avg_bias < -0.3:
+        bias_comment = "全体としてやや保守的な立場が見られます。"
+    elif avg_bias > 0.3:
+        bias_comment = "リベラル寄りの傾向が強く見られます。"
+    else:
+        bias_comment = "中道寄りの投稿が多い傾向です。"
 
-    st.info("あなたの傾向をもとに、今後の発信スタイルを客観的に見直すきっかけになるかもしれません。")
+    if avg_strength < 0.3:
+        strength_comment = "主張は穏やかでバランス重視の傾向です。"
+    elif avg_strength > 0.7:
+        strength_comment = "表現が強く、主張が際立つ傾向です。"
+    else:
+        strength_comment = "やや主張が強めで説得力を重視しています。"
+
+    st.markdown(f"- 平均バイアススコア：**{avg_bias:.2f}** → {bias_comment}")
+    st.markdown(f"- 平均主張スコア：**{avg_strength:.2f}** → {strength_comment}")
