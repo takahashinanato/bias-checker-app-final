@@ -18,6 +18,10 @@ if "input_text" not in st.session_state:
     st.session_state.input_text = ""
 if "history" not in st.session_state:
     st.session_state.history = []
+if "similar_regen" not in st.session_state:
+    st.session_state.similar_regen = None
+if "opposite_regen" not in st.session_state:
+    st.session_state.opposite_regen = None
 
 # UI: 入力欄とジャンル
 genre = st.selectbox("ジャンルを選択してください", [
@@ -35,9 +39,11 @@ with col2:
     if st.button("🧹 入力をクリア"):
         st.session_state.input_text = ""
         st.session_state.latest_response = None
+        st.session_state.similar_regen = None
+        st.session_state.opposite_regen = None
         st.experimental_rerun()
 
-# GPTプロンプト生成（投稿診断）
+# GPTプロンプト（診断用）
 def build_prompt(text):
     return f'''
 あなたはSNS投稿のバイアス分析AIです。以下の投稿文について、以下の形式でJSONのみを出力してください：
@@ -52,27 +58,19 @@ def build_prompt(text):
 {text}
 '''
 
-# GPTプロンプト生成（傾向要約）← 改善版
+# GPTプロンプト（傾向要約）
 def build_summary_prompt(history):
     return f"""
 あなたは、あるユーザーのSNS投稿診断履歴から政治的な傾向を要約するAIです。
-以下の履歴には、それぞれの投稿の「バイアススコア（-1.0=保守、+1.0=リベラル）」「主張の強さ（0.0〜1.0）」「ジャンル」「コメント」が含まれています。
+以下の履歴には、それぞれの投稿の「バイアススコア」「主張の強さ」「ジャンル」「コメント」が含まれます。
 
-この情報をもとに、そのユーザーの傾向を**自然な日本語（200字以内）**で1文〜2文で要約してください。
-
-ポイント：
-- 特にバイアスの傾向（保守 or リベラル、どのくらいか）
-- 主張の強さ（全体的に穏健か、強めか）
-- 特定ジャンルに偏りがあるか（あれば言及）
+この情報をもとに、自然な日本語でその傾向を200字以内で要約してください。
 
 【診断履歴】:
 {json.dumps(history, ensure_ascii=False, indent=2)}
-
-【出力フォーマット】:
-あなたの投稿は◯◯寄りで、◯◯に関する意見が多く見られます。また、主張の強さは◯◯傾向にあります。
 """
 
-# GPT呼び出し
+# GPT呼び出し関数
 def fetch_chatgpt(prompt):
     try:
         response = openai.chat.completions.create(
@@ -97,6 +95,8 @@ if run_diagnosis and user_input:
         if isinstance(result, dict):
             st.session_state.latest_prompt = user_input
             st.session_state.latest_response = result
+            st.session_state.similar_regen = result.get("similar_opinion")
+            st.session_state.opposite_regen = result.get("opposite_opinion")
             st.session_state.history.append({
                 "Bias": result["bias_score"],
                 "Strength": result["strength_score"],
@@ -123,19 +123,45 @@ if st.session_state.latest_response:
     fig.update_layout(dragmode=False, modebar_remove=["zoom", "pan", "lasso2d", "select2d"])
     st.plotly_chart(fig, use_container_width=True)
 
+    # 似た意見ブロック
     st.markdown("### 🟦 似た意見")
-    sim = data.get("similar_opinion")
+    if st.button("🔄 似た意見を再生成"):
+        sim_prompt = f'''
+以下の投稿に対して、似た意見を1つ生成してください。形式は次のとおりです：
+similar_opinion（{{"content": "...", "bias_score": 数値, "strength_score": 数値}}）
+
+投稿内容:
+{st.session_state.latest_prompt}
+'''
+        regen = fetch_chatgpt(sim_prompt)
+        if isinstance(regen, dict):
+            st.session_state.similar_regen = regen.get("similar_opinion")
+
+    sim = st.session_state.similar_regen
     if sim:
         st.markdown(f"**内容**: {sim['content']}")
         st.markdown(f"**スコア**: {sim['bias_score']}, {sim['strength_score']}")
 
+    # 反対意見ブロック
     st.markdown("### 🟥 反対意見")
-    opp = data.get("opposite_opinion")
+    if st.button("🔄 反対意見を再生成"):
+        opp_prompt = f'''
+以下の投稿に対して、反対意見を1つ生成してください。形式は次のとおりです：
+opposite_opinion（{{"content": "...", "bias_score": 数値, "strength_score": 数値}}）
+
+投稿内容:
+{st.session_state.latest_prompt}
+'''
+        regen = fetch_chatgpt(opp_prompt)
+        if isinstance(regen, dict):
+            st.session_state.opposite_regen = regen.get("opposite_opinion")
+
+    opp = st.session_state.opposite_regen
     if opp:
         st.markdown(f"**内容**: {opp['content']}")
         st.markdown(f"**スコア**: {opp['bias_score']}, {opp['strength_score']}")
 
-# 履歴と傾向コメント
+# 履歴・傾向
 if st.session_state.history:
     st.markdown("### 🧮 診断履歴")
     df_all = pd.DataFrame(st.session_state.history)
